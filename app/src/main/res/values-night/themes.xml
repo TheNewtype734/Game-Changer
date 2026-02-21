@@ -1,0 +1,4 @@
+<resources>
+    <!-- Window/Activity theme. Compose MaterialTheme handles all runtime theming. -->
+    <style name="Theme.GameChanger" parent="Theme.MaterialComponents.DayNight.NoActionBar" />
+</resources>
