@@ -1,6 +1,7 @@
 package com.squires.gamechanger.leagues;
 
 import com.squires.gamechanger.domain.usecase.GetLeaguesUseCase;
+import com.squires.gamechanger.domain.usecase.SearchLeaguesUseCase;
 import dagger.internal.DaggerGenerated;
 import dagger.internal.Factory;
 import dagger.internal.QualifierMetadata;
@@ -24,21 +25,27 @@ import javax.inject.Provider;
 public final class LeaguesViewModel_Factory implements Factory<LeaguesViewModel> {
   private final Provider<GetLeaguesUseCase> getLeaguesUseCaseProvider;
 
-  public LeaguesViewModel_Factory(Provider<GetLeaguesUseCase> getLeaguesUseCaseProvider) {
+  private final Provider<SearchLeaguesUseCase> searchLeaguesUseCaseProvider;
+
+  public LeaguesViewModel_Factory(Provider<GetLeaguesUseCase> getLeaguesUseCaseProvider,
+      Provider<SearchLeaguesUseCase> searchLeaguesUseCaseProvider) {
     this.getLeaguesUseCaseProvider = getLeaguesUseCaseProvider;
+    this.searchLeaguesUseCaseProvider = searchLeaguesUseCaseProvider;
   }
 
   @Override
   public LeaguesViewModel get() {
-    return newInstance(getLeaguesUseCaseProvider.get());
+    return newInstance(getLeaguesUseCaseProvider.get(), searchLeaguesUseCaseProvider.get());
   }
 
   public static LeaguesViewModel_Factory create(
-      Provider<GetLeaguesUseCase> getLeaguesUseCaseProvider) {
-    return new LeaguesViewModel_Factory(getLeaguesUseCaseProvider);
+      Provider<GetLeaguesUseCase> getLeaguesUseCaseProvider,
+      Provider<SearchLeaguesUseCase> searchLeaguesUseCaseProvider) {
+    return new LeaguesViewModel_Factory(getLeaguesUseCaseProvider, searchLeaguesUseCaseProvider);
   }
 
-  public static LeaguesViewModel newInstance(GetLeaguesUseCase getLeaguesUseCase) {
-    return new LeaguesViewModel(getLeaguesUseCase);
+  public static LeaguesViewModel newInstance(GetLeaguesUseCase getLeaguesUseCase,
+      SearchLeaguesUseCase searchLeaguesUseCase) {
+    return new LeaguesViewModel(getLeaguesUseCase, searchLeaguesUseCase);
   }
 }

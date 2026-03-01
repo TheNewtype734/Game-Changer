@@ -101,6 +101,10 @@ public class TeamDetailDao_Impl(
     __insertAdapterOfTeamDetailEntity.insert(_connection, teamDetail)
   }
 
+  public override suspend fun insertAll(teamDetails: List<TeamDetailEntity>): Unit = performSuspending(__db, false, true) { _connection ->
+    __insertAdapterOfTeamDetailEntity.insert(_connection, teamDetails)
+  }
+
   public override fun getTeamDetail(teamId: String): Flow<TeamDetailEntity?> {
     val _sql: String = "SELECT * FROM team_details WHERE id = ?"
     return createFlow(__db, false, arrayOf("team_details")) { _connection ->

@@ -24,15 +24,20 @@ object DatabaseModule {
             context,
             GameChangerDatabase::class.java,
             "gamechanger.db",
-        ).build()
+        )
+            .fallbackToDestructiveMigration()
+            .build()
     }
 
     @Provides
+    @Singleton
     fun provideLeagueDao(database: GameChangerDatabase): LeagueDao = database.leagueDao()
 
     @Provides
+    @Singleton
     fun provideTeamDao(database: GameChangerDatabase): TeamDao = database.teamDao()
 
     @Provides
+    @Singleton
     fun provideTeamDetailDao(database: GameChangerDatabase): TeamDetailDao = database.teamDetailDao()
 }

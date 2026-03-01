@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -68,6 +70,7 @@ fun TeamDetailScreen(
     ) { innerPadding ->
         TeamDetailContent(
             uiState = uiState,
+            onRetry = viewModel::retry,
             modifier = Modifier.padding(innerPadding),
         )
     }
@@ -76,6 +79,7 @@ fun TeamDetailScreen(
 @Composable
 private fun TeamDetailContent(
     uiState: TeamDetailUiState,
+    onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -86,11 +90,7 @@ private fun TeamDetailContent(
             is UiState.Loading -> CircularProgressIndicator()
 
             is UiState.Error -> {
-                Text(
-                    text = uiState.message,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyLarge,
-                )
+                FullScreenError(message = uiState.message, onRetry = onRetry)
             }
 
             is UiState.Success -> {
@@ -99,6 +99,32 @@ private fun TeamDetailContent(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun FullScreenError(
+    message: String,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+        modifier = modifier
+            .fillMaxSize()
+            .padding(32.dp),
+    ) {
+        Text(
+            text = message,
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(onClick = onRetry) {
+            Text("Retry")
         }
     }
 }
@@ -118,7 +144,7 @@ private fun TeamDetailBody(
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(16f / 9f),
+                    .aspectRatio(1000f / 185f),
                 contentScale = ContentScale.Crop,
             )
         }

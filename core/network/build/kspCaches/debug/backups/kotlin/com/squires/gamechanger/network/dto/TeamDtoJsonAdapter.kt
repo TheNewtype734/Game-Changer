@@ -20,7 +20,8 @@ public class TeamDtoJsonAdapter(
   moshi: Moshi,
 ) : JsonAdapter<TeamDto>() {
   private val options: JsonReader.Options = JsonReader.Options.of("idTeam", "strTeam", "strLeague",
-      "strTeamBadge", "strSport")
+      "strBadge", "strSport", "strCountry", "intFormedYear", "strDescriptionEN", "strStadium",
+      "strLocation", "intStadiumCapacity", "strBanner", "strWebsite")
 
   private val nullableStringAdapter: JsonAdapter<String?> = moshi.adapter(String::class.java,
       emptySet(), "id")
@@ -34,6 +35,14 @@ public class TeamDtoJsonAdapter(
     var leagueName: String? = null
     var badgeUrl: String? = null
     var sport: String? = null
+    var country: String? = null
+    var formedYear: String? = null
+    var description: String? = null
+    var stadium: String? = null
+    var stadiumLocation: String? = null
+    var stadiumCapacity: String? = null
+    var bannerUrl: String? = null
+    var website: String? = null
     reader.beginObject()
     while (reader.hasNext()) {
       when (reader.selectName(options)) {
@@ -42,6 +51,14 @@ public class TeamDtoJsonAdapter(
         2 -> leagueName = nullableStringAdapter.fromJson(reader)
         3 -> badgeUrl = nullableStringAdapter.fromJson(reader)
         4 -> sport = nullableStringAdapter.fromJson(reader)
+        5 -> country = nullableStringAdapter.fromJson(reader)
+        6 -> formedYear = nullableStringAdapter.fromJson(reader)
+        7 -> description = nullableStringAdapter.fromJson(reader)
+        8 -> stadium = nullableStringAdapter.fromJson(reader)
+        9 -> stadiumLocation = nullableStringAdapter.fromJson(reader)
+        10 -> stadiumCapacity = nullableStringAdapter.fromJson(reader)
+        11 -> bannerUrl = nullableStringAdapter.fromJson(reader)
+        12 -> website = nullableStringAdapter.fromJson(reader)
         -1 -> {
           // Unknown name, skip it.
           reader.skipName()
@@ -55,7 +72,15 @@ public class TeamDtoJsonAdapter(
         name = name,
         leagueName = leagueName,
         badgeUrl = badgeUrl,
-        sport = sport
+        sport = sport,
+        country = country,
+        formedYear = formedYear,
+        description = description,
+        stadium = stadium,
+        stadiumLocation = stadiumLocation,
+        stadiumCapacity = stadiumCapacity,
+        bannerUrl = bannerUrl,
+        website = website
     )
   }
 
@@ -70,10 +95,26 @@ public class TeamDtoJsonAdapter(
     nullableStringAdapter.toJson(writer, value_.name)
     writer.name("strLeague")
     nullableStringAdapter.toJson(writer, value_.leagueName)
-    writer.name("strTeamBadge")
+    writer.name("strBadge")
     nullableStringAdapter.toJson(writer, value_.badgeUrl)
     writer.name("strSport")
     nullableStringAdapter.toJson(writer, value_.sport)
+    writer.name("strCountry")
+    nullableStringAdapter.toJson(writer, value_.country)
+    writer.name("intFormedYear")
+    nullableStringAdapter.toJson(writer, value_.formedYear)
+    writer.name("strDescriptionEN")
+    nullableStringAdapter.toJson(writer, value_.description)
+    writer.name("strStadium")
+    nullableStringAdapter.toJson(writer, value_.stadium)
+    writer.name("strLocation")
+    nullableStringAdapter.toJson(writer, value_.stadiumLocation)
+    writer.name("intStadiumCapacity")
+    nullableStringAdapter.toJson(writer, value_.stadiumCapacity)
+    writer.name("strBanner")
+    nullableStringAdapter.toJson(writer, value_.bannerUrl)
+    writer.name("strWebsite")
+    nullableStringAdapter.toJson(writer, value_.website)
     writer.endObject()
   }
 }

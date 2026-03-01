@@ -20,7 +20,7 @@ public class LeagueDtoJsonAdapter(
   moshi: Moshi,
 ) : JsonAdapter<LeagueDto>() {
   private val options: JsonReader.Options = JsonReader.Options.of("idLeague", "strLeague",
-      "strSport", "strLeagueBadge", "strCountry")
+      "strSport", "strBadge", "strCountry")
 
   private val nullableStringAdapter: JsonAdapter<String?> = moshi.adapter(String::class.java,
       emptySet(), "id")
@@ -70,7 +70,7 @@ public class LeagueDtoJsonAdapter(
     nullableStringAdapter.toJson(writer, value_.name)
     writer.name("strSport")
     nullableStringAdapter.toJson(writer, value_.sport)
-    writer.name("strLeagueBadge")
+    writer.name("strBadge")
     nullableStringAdapter.toJson(writer, value_.badgeUrl)
     writer.name("strCountry")
     nullableStringAdapter.toJson(writer, value_.country)

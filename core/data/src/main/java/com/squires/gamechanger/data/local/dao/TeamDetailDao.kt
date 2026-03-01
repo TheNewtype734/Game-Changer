@@ -15,4 +15,7 @@ interface TeamDetailDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(teamDetail: TeamDetailEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(teamDetails: List<TeamDetailEntity>)
 }

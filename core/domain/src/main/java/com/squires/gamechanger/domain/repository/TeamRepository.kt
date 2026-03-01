@@ -8,4 +8,5 @@ import kotlinx.coroutines.flow.Flow
 interface TeamRepository {
     fun getTeamsForLeague(leagueName: String): Flow<Result<List<Team>>>
     fun getTeamDetail(teamId: String): Flow<Result<TeamDetail>>
+    suspend fun refreshTeamsForLeague(leagueName: String): Result<Unit>
 }

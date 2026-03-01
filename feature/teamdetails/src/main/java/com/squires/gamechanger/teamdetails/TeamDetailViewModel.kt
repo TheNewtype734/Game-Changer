@@ -7,35 +7,47 @@ import com.squires.gamechanger.common.Result
 import com.squires.gamechanger.common.UiState
 import com.squires.gamechanger.domain.usecase.GetTeamDetailUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class TeamDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    getTeamDetailUseCase: GetTeamDetailUseCase,
+    private val getTeamDetailUseCase: GetTeamDetailUseCase,
 ) : ViewModel() {
 
-    private val teamId: String = checkNotNull(savedStateHandle[TeamDetailArgs.TEAM_ID])
+    private val teamId: String = checkNotNull(savedStateHandle[TeamDetailRoute::teamId.name])
 
-    val uiState: StateFlow<TeamDetailUiState> = getTeamDetailUseCase(teamId)
-        .map { result ->
-            when (result) {
-                is Result.Loading -> UiState.Loading
-                is Result.Success -> UiState.Success(result.data)
-                is Result.Error -> UiState.Error(result.message)
-            }
+    private val _uiState = MutableStateFlow<TeamDetailUiState>(UiState.Loading)
+    val uiState: StateFlow<TeamDetailUiState> = _uiState.asStateFlow()
+
+    private var loadJob: Job? = null
+
+    init {
+        loadTeamDetail()
+    }
+
+    fun retry() {
+        loadTeamDetail()
+    }
+
+    private fun loadTeamDetail() {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            getTeamDetailUseCase(teamId)
+                .map { result ->
+                    when (result) {
+                        is Result.Loading -> UiState.Loading
+                        is Result.Success -> UiState.Success(result.data)
+                        is Result.Error -> UiState.Error(result.message)
+                    }
+                }
+                .collect { _uiState.value = it }
         }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = UiState.Loading,
-        )
-}
-
-object TeamDetailArgs {
-    const val TEAM_ID = "teamId"
+    }
 }
