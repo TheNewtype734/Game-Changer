@@ -3,25 +3,14 @@ package com.squires.gamechanger.navigation
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
-import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.navArgument
+import com.squires.gamechanger.leagues.LeaguesRoute
 import com.squires.gamechanger.leagues.LeaguesScreen
+import com.squires.gamechanger.teamdetails.TeamDetailRoute
 import com.squires.gamechanger.teamdetails.TeamDetailScreen
-import com.squires.gamechanger.teamdetails.TeamDetailArgs
-import com.squires.gamechanger.teams.TeamsArgs
+import com.squires.gamechanger.teams.TeamsRoute
 import com.squires.gamechanger.teams.TeamsScreen
-
-sealed class Screen(val route: String) {
-    data object Leagues : Screen("leagues")
-    data object Teams : Screen("teams/{${TeamsArgs.LEAGUE_NAME}}") {
-        fun createRoute(leagueName: String) = "teams/$leagueName"
-    }
-    data object TeamDetail : Screen("teamdetail/{${TeamDetailArgs.TEAM_ID}}") {
-        fun createRoute(teamId: String) = "teamdetail/$teamId"
-    }
-}
 
 @Composable
 fun GameChangerNavHost(
@@ -30,37 +19,27 @@ fun GameChangerNavHost(
 ) {
     NavHost(
         navController = navController,
-        startDestination = Screen.Leagues.route,
+        startDestination = LeaguesRoute,
         modifier = modifier,
     ) {
-        composable(Screen.Leagues.route) {
+        composable<LeaguesRoute> {
             LeaguesScreen(
                 onLeagueClick = { leagueName ->
-                    navController.navigate(Screen.Teams.createRoute(leagueName))
+                    navController.navigate(TeamsRoute(leagueName))
                 },
             )
         }
 
-        composable(
-            route = Screen.Teams.route,
-            arguments = listOf(
-                navArgument(TeamsArgs.LEAGUE_NAME) { type = NavType.StringType },
-            ),
-        ) {
+        composable<TeamsRoute> {
             TeamsScreen(
                 onTeamClick = { teamId ->
-                    navController.navigate(Screen.TeamDetail.createRoute(teamId))
+                    navController.navigate(TeamDetailRoute(teamId))
                 },
                 onBackClick = { navController.popBackStack() },
             )
         }
 
-        composable(
-            route = Screen.TeamDetail.route,
-            arguments = listOf(
-                navArgument(TeamDetailArgs.TEAM_ID) { type = NavType.StringType },
-            ),
-        ) {
+        composable<TeamDetailRoute> {
             TeamDetailScreen(
                 onBackClick = { navController.popBackStack() },
             )

@@ -8,6 +8,6 @@ data class LeagueDto(
     @Json(name = "idLeague") val id: String?,
     @Json(name = "strLeague") val name: String?,
     @Json(name = "strSport") val sport: String?,
-    @Json(name = "strLeagueBadge") val badgeUrl: String?,
+    @Json(name = "strBadge") val badgeUrl: String?,
     @Json(name = "strCountry") val country: String?,
 )
