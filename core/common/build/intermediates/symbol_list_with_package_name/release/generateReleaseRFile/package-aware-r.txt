@@ -1,1 +1,0 @@
-com.squires.gamechanger.common
