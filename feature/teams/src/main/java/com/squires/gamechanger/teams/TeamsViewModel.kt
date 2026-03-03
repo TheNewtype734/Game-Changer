@@ -3,51 +3,43 @@ package com.squires.gamechanger.teams
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
 import com.squires.gamechanger.common.Result
-import com.squires.gamechanger.common.UiState
-import com.squires.gamechanger.domain.usecase.GetTeamsForLeagueUseCase
+import com.squires.gamechanger.domain.model.Team
+import com.squires.gamechanger.domain.usecase.GetTeamsForLeaguePagedUseCase
+import com.squires.gamechanger.domain.usecase.RefreshTeamsForLeagueUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class TeamsViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val getTeamsForLeagueUseCase: GetTeamsForLeagueUseCase,
+    private val getTeamsForLeaguePagedUseCase: GetTeamsForLeaguePagedUseCase,
+    private val refreshTeamsForLeagueUseCase: RefreshTeamsForLeagueUseCase,
 ) : ViewModel() {
 
     val leagueName: String = checkNotNull(savedStateHandle[TeamsRoute::leagueName.name])
 
-    private val _uiState = MutableStateFlow<TeamsUiState>(UiState.Loading)
-    val uiState: StateFlow<TeamsUiState> = _uiState.asStateFlow()
+    private val _refreshState = MutableStateFlow<Result<Unit>>(Result.Loading)
+    val refreshState: StateFlow<Result<Unit>> = _refreshState.asStateFlow()
 
-    private var loadJob: Job? = null
+    val pagedTeams: Flow<PagingData<Team>> = getTeamsForLeaguePagedUseCase(leagueName)
+        .cachedIn(viewModelScope)
 
-    init {
-        loadTeams()
-    }
+    init { triggerRefresh() }
 
-    fun retry() {
-        loadTeams()
-    }
+    fun retry() { triggerRefresh() }
 
-    private fun loadTeams() {
-        loadJob?.cancel()
-        loadJob = viewModelScope.launch {
-            getTeamsForLeagueUseCase(leagueName)
-                .map { result ->
-                    when (result) {
-                        is Result.Loading -> UiState.Loading
-                        is Result.Success -> UiState.Success(result.data)
-                        is Result.Error -> UiState.Error(result.message, result.cachedData)
-                    }
-                }
-                .collect { _uiState.value = it }
+    private fun triggerRefresh() {
+        viewModelScope.launch {
+            _refreshState.value = Result.Loading
+            _refreshState.value = refreshTeamsForLeagueUseCase(leagueName)
         }
     }
 }

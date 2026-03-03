@@ -1,23 +1,28 @@
 package com.squires.gamechanger.leagues
 
+import androidx.paging.PagingData
 import app.cash.turbine.test
 import com.squires.gamechanger.common.Result
 import com.squires.gamechanger.common.UiState
 import com.squires.gamechanger.domain.model.League
-import com.squires.gamechanger.domain.usecase.GetLeaguesUseCase
+import com.squires.gamechanger.domain.usecase.GetLeaguesPagedUseCase
+import com.squires.gamechanger.domain.usecase.RefreshLeaguesUseCase
 import com.squires.gamechanger.domain.usecase.SearchLeaguesUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
@@ -26,13 +31,16 @@ import org.mockito.kotlin.whenever
 @OptIn(ExperimentalCoroutinesApi::class)
 class LeaguesViewModelTest {
 
-    private val getLeaguesUseCase: GetLeaguesUseCase = mock()
+    private val getLeaguesPagedUseCase: GetLeaguesPagedUseCase = mock()
+    private val refreshLeaguesUseCase: RefreshLeaguesUseCase = mock()
     private val searchLeaguesUseCase: SearchLeaguesUseCase = mock()
-    private val testDispatcher = StandardTestDispatcher()
+    private val testScheduler = TestCoroutineScheduler()
+    private val testDispatcher = StandardTestDispatcher(testScheduler)
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        whenever(getLeaguesPagedUseCase()).thenReturn(flowOf(PagingData.empty()))
     }
 
     @After
@@ -41,7 +49,8 @@ class LeaguesViewModelTest {
     }
 
     private fun createViewModel() = LeaguesViewModel(
-        getLeaguesUseCase = getLeaguesUseCase,
+        getLeaguesPagedUseCase = getLeaguesPagedUseCase,
+        refreshLeaguesUseCase = refreshLeaguesUseCase,
         searchLeaguesUseCase = searchLeaguesUseCase,
     )
 
@@ -50,25 +59,108 @@ class LeaguesViewModelTest {
     )
 
     @Test
-    fun `initial state is Loading`() = runTest {
-        whenever(getLeaguesUseCase()).thenReturn(flowOf(Result.Loading))
+    fun `initial refreshState is Loading`() = runTest(testDispatcher) {
+        whenever(refreshLeaguesUseCase()).thenReturn(Result.Success(Unit))
 
         val viewModel = createViewModel()
 
-        viewModel.uiState.test {
-            assertTrue(awaitItem() is UiState.Loading)
+        assertEquals(Result.Loading, viewModel.refreshState.value)
+    }
+
+    @Test
+    fun `refreshState becomes Success after successful refresh`() = runTest(testDispatcher) {
+        whenever(refreshLeaguesUseCase()).thenReturn(Result.Success(Unit))
+
+        val viewModel = createViewModel()
+
+        viewModel.refreshState.test {
+            assertEquals(Result.Loading, awaitItem())
+            testScheduler.advanceUntilIdle()
+            assertEquals(Result.Success(Unit), awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
     }
 
     @Test
-    fun `success result maps to Success state`() = runTest {
-        whenever(getLeaguesUseCase()).thenReturn(flowOf(Result.Success(leagues)))
+    fun `refreshState becomes Error when refresh fails`() = runTest(testDispatcher) {
+        val errorMessage = "No internet connection. Check your network and try again."
+        whenever(refreshLeaguesUseCase()).thenReturn(Result.Error(errorMessage))
 
         val viewModel = createViewModel()
 
-        viewModel.uiState.test {
+        viewModel.refreshState.test {
             awaitItem() // initial Loading
+            testScheduler.advanceUntilIdle()
+            val state = awaitItem()
+            assertTrue(state is Result.Error)
+            assertEquals(errorMessage, (state as Result.Error).message)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `retry with blank query invokes refreshLeaguesUseCase a second time`() = runTest(testDispatcher) {
+        whenever(refreshLeaguesUseCase()).thenReturn(Result.Success(Unit))
+
+        val viewModel = createViewModel()
+        testScheduler.advanceUntilIdle() // initial refresh
+
+        viewModel.retry()
+        testScheduler.advanceUntilIdle() // retry refresh
+
+        verify(refreshLeaguesUseCase, times(2)).invoke()
+    }
+
+    @Test
+    fun `retry after error becomes Loading then result`() = runTest(testDispatcher) {
+        whenever(refreshLeaguesUseCase())
+            .thenReturn(Result.Error("Network error"))
+            .thenReturn(Result.Success(Unit))
+
+        val viewModel = createViewModel()
+        testScheduler.advanceUntilIdle() // initial refresh (Error)
+
+        viewModel.refreshState.test {
+            awaitItem() // current value: Error
+            viewModel.retry()
+            testScheduler.advanceUntilIdle()
+            assertEquals(Result.Loading, awaitItem())
+            assertEquals(Result.Success(Unit), awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `pagedLeagues is initialized from getLeaguesPagedUseCase`() = runTest(testDispatcher) {
+        whenever(refreshLeaguesUseCase()).thenReturn(Result.Success(Unit))
+
+        val viewModel = createViewModel()
+
+        assertNotNull(viewModel.pagedLeagues)
+        verify(getLeaguesPagedUseCase).invoke()
+    }
+
+    @Test
+    fun `initial searchState is Loading`() = runTest(testDispatcher) {
+        whenever(refreshLeaguesUseCase()).thenReturn(Result.Success(Unit))
+
+        val viewModel = createViewModel()
+
+        assertTrue(viewModel.searchState.value is UiState.Loading)
+    }
+
+    @Test
+    fun `searchState becomes Success when searchLeaguesUseCase returns results`() = runTest(testDispatcher) {
+        whenever(refreshLeaguesUseCase()).thenReturn(Result.Success(Unit))
+        whenever(searchLeaguesUseCase(any())).thenReturn(Result.Success(leagues))
+
+        val viewModel = createViewModel()
+        testScheduler.advanceUntilIdle() // start ViewModel init coroutines (queryTrigger collector)
+
+        viewModel.searchState.test {
+            awaitItem() // initial Loading
+            viewModel.onSearchQueryChange("England")
+            testScheduler.advanceUntilIdle()
             val state = awaitItem()
             assertTrue(state is UiState.Success)
             assertEquals(leagues, (state as UiState.Success).data)
@@ -77,16 +169,18 @@ class LeaguesViewModelTest {
     }
 
     @Test
-    fun `error result maps to Error state`() = runTest {
+    fun `searchState becomes Error when searchLeaguesUseCase returns error`() = runTest(testDispatcher) {
         val errorMessage = "No internet connection. Check your network and try again."
-        whenever(getLeaguesUseCase()).thenReturn(
-            flowOf<Result<List<League>>>(Result.Error(errorMessage))
-        )
+        whenever(refreshLeaguesUseCase()).thenReturn(Result.Success(Unit))
+        whenever(searchLeaguesUseCase(any())).thenReturn(Result.Error(errorMessage))
 
         val viewModel = createViewModel()
+        testScheduler.advanceUntilIdle() // start ViewModel init coroutines (queryTrigger collector)
 
-        viewModel.uiState.test {
+        viewModel.searchState.test {
             awaitItem() // initial Loading
+            viewModel.onSearchQueryChange("England")
+            testScheduler.advanceUntilIdle()
             val state = awaitItem()
             assertTrue(state is UiState.Error)
             assertEquals(errorMessage, (state as UiState.Error).message)
@@ -95,94 +189,20 @@ class LeaguesViewModelTest {
     }
 
     @Test
-    fun `error result with cachedData maps to Error state with cachedData`() = runTest {
-        whenever(getLeaguesUseCase()).thenReturn(
-            flowOf<Result<List<League>>>(Result.Error("No internet connection...", cachedData = leagues))
-        )
+    fun `retry with non-blank query re-invokes searchLeaguesUseCase`() = runTest(testDispatcher) {
+        whenever(refreshLeaguesUseCase()).thenReturn(Result.Success(Unit))
+        whenever(searchLeaguesUseCase(any()))
+            .thenReturn(Result.Success(leagues))
+            .thenReturn(Result.Success(emptyList()))
 
         val viewModel = createViewModel()
+        testScheduler.advanceUntilIdle() // start ViewModel init coroutines (queryTrigger collector)
+        viewModel.onSearchQueryChange("England")
+        testScheduler.advanceUntilIdle() // first search
 
-        viewModel.uiState.test {
-            awaitItem() // initial Loading
-            val state = awaitItem() as UiState.Error
-            assertEquals(leagues, state.cachedData)
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
+        viewModel.retry()
+        testScheduler.advanceUntilIdle() // retry search
 
-    @Test
-    fun `success with empty list maps to Success state with empty list`() = runTest {
-        whenever(getLeaguesUseCase()).thenReturn(flowOf(Result.Success(emptyList())))
-
-        val viewModel = createViewModel()
-
-        viewModel.uiState.test {
-            awaitItem() // initial Loading
-            val state = awaitItem()
-            assertTrue(state is UiState.Success)
-            assertTrue((state as UiState.Success).data.isEmpty())
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `retry re-triggers getLeaguesUseCase`() = runTest {
-        val updatedLeagues = listOf(
-            League(id = "2", name = "La Liga", sport = "Soccer", badgeUrl = null, country = "Spain"),
-        )
-        whenever(getLeaguesUseCase())
-            .thenReturn(flowOf(Result.Success(leagues)))
-            .thenReturn(flowOf(Result.Success(updatedLeagues)))
-
-        val viewModel = createViewModel()
-
-        viewModel.uiState.test {
-            awaitItem() // initial Loading
-            awaitItem() // Success from init
-            viewModel.retry()
-            val state = awaitItem() as UiState.Success
-            assertEquals(updatedLeagues, state.data)
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `retry invokes getLeaguesUseCase a second time`() = runTest {
-        val updatedLeagues = listOf(
-            League(id = "2", name = "La Liga", sport = "Soccer", badgeUrl = null, country = "Spain"),
-        )
-        whenever(getLeaguesUseCase())
-            .thenReturn(flowOf(Result.Success(leagues)))
-            .thenReturn(flowOf(Result.Success(updatedLeagues)))
-
-        val viewModel = createViewModel()
-
-        viewModel.uiState.test {
-            awaitItem() // initial Loading
-            awaitItem() // Success from init
-            viewModel.retry()
-            awaitItem() // Success from retry
-            cancelAndIgnoreRemainingEvents()
-        }
-
-        verify(getLeaguesUseCase, times(2)).invoke()
-    }
-
-    @Test
-    fun `retry on error re-emits Error with cachedData`() = runTest {
-        whenever(getLeaguesUseCase())
-            .thenReturn(flowOf<Result<List<League>>>(Result.Error("No internet...", cachedData = leagues)))
-            .thenReturn(flowOf<Result<List<League>>>(Result.Error("Still no internet.", cachedData = leagues)))
-
-        val viewModel = createViewModel()
-
-        viewModel.uiState.test {
-            awaitItem() // initial Loading
-            awaitItem() // Error with cached data
-            viewModel.retry()
-            val errorAfterRetry = awaitItem() as UiState.Error
-            assertEquals(leagues, errorAfterRetry.cachedData)
-            cancelAndIgnoreRemainingEvents()
-        }
+        verify(searchLeaguesUseCase, times(2)).invoke("England")
     }
 }

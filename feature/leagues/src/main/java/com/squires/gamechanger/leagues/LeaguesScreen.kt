@@ -33,6 +33,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
+import com.squires.gamechanger.common.Result
 import com.squires.gamechanger.common.UiState
 import com.squires.gamechanger.domain.model.League
 
@@ -43,8 +47,10 @@ fun LeaguesScreen(
     modifier: Modifier = Modifier,
     viewModel: LeaguesViewModel = hiltViewModel(),
 ) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val lazyLeagues = viewModel.pagedLeagues.collectAsLazyPagingItems()
+    val refreshState by viewModel.refreshState.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val searchState by viewModel.searchState.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -55,8 +61,10 @@ fun LeaguesScreen(
         modifier = modifier,
     ) { innerPadding ->
         LeaguesContent(
-            uiState = uiState,
+            lazyLeagues = lazyLeagues,
+            refreshState = refreshState,
             searchQuery = searchQuery,
+            searchState = searchState,
             onSearchQueryChange = viewModel::onSearchQueryChange,
             onLeagueClick = onLeagueClick,
             onRetry = viewModel::retry,
@@ -67,8 +75,10 @@ fun LeaguesScreen(
 
 @Composable
 private fun LeaguesContent(
-    uiState: LeaguesUiState,
+    lazyLeagues: LazyPagingItems<League>,
+    refreshState: Result<Unit>,
     searchQuery: String,
+    searchState: LeaguesUiState,
     onSearchQueryChange: (String) -> Unit,
     onLeagueClick: (leagueName: String) -> Unit,
     onRetry: () -> Unit,
@@ -97,48 +107,104 @@ private fun LeaguesContent(
                 .weight(1f),
             contentAlignment = Alignment.Center,
         ) {
-            when (uiState) {
-                is UiState.Loading -> {
-                    CircularProgressIndicator()
-                }
-
-                is UiState.Error -> {
-                    val cached = uiState.cachedData
-                    if (cached != null) {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            LeaguesList(
-                                leagues = cached,
-                                onLeagueClick = onLeagueClick,
-                            )
-                            ErrorBanner(
-                                message = uiState.message,
-                                onRetry = onRetry,
-                                modifier = Modifier.align(Alignment.TopCenter),
-                            )
-                        }
-                    } else {
-                        FullScreenError(message = uiState.message, onRetry = onRetry)
-                    }
-                }
-
-                is UiState.Success -> {
-                    if (uiState.data.isEmpty()) {
-                        Text(
-                            text = if (searchQuery.isNotBlank()) {
-                                "No leagues match \"$searchQuery\""
-                            } else {
-                                "No leagues found"
-                            },
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                    } else {
-                        LeaguesList(
-                            leagues = uiState.data,
-                            onLeagueClick = onLeagueClick,
-                        )
-                    }
-                }
+            if (searchQuery.isBlank()) {
+                BrowseLeaguesContent(
+                    lazyLeagues = lazyLeagues,
+                    refreshState = refreshState,
+                    onLeagueClick = onLeagueClick,
+                    onRetry = onRetry,
+                )
+            } else {
+                SearchLeaguesContent(
+                    searchState = searchState,
+                    searchQuery = searchQuery,
+                    onLeagueClick = onLeagueClick,
+                    onRetry = onRetry,
+                )
             }
+        }
+    }
+}
+
+@Composable
+private fun BrowseLeaguesContent(
+    lazyLeagues: LazyPagingItems<League>,
+    refreshState: Result<Unit>,
+    onLeagueClick: (leagueName: String) -> Unit,
+    onRetry: () -> Unit,
+) {
+    if (lazyLeagues.itemCount > 0) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            PagedLeaguesList(
+                lazyLeagues = lazyLeagues,
+                onLeagueClick = onLeagueClick,
+            )
+            if (refreshState is Result.Error) {
+                ErrorBanner(
+                    message = refreshState.message,
+                    onRetry = onRetry,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
+            }
+        }
+    } else {
+        when (refreshState) {
+            is Result.Loading -> CircularProgressIndicator()
+            is Result.Error -> FullScreenError(message = refreshState.message, onRetry = onRetry)
+            is Result.Success -> Text(
+                text = "No leagues found",
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchLeaguesContent(
+    searchState: LeaguesUiState,
+    searchQuery: String,
+    onLeagueClick: (leagueName: String) -> Unit,
+    onRetry: () -> Unit,
+) {
+    when (searchState) {
+        is UiState.Loading -> CircularProgressIndicator()
+        is UiState.Error -> FullScreenError(message = searchState.message, onRetry = onRetry)
+        is UiState.Success -> {
+            if (searchState.data.isEmpty()) {
+                Text(
+                    text = "No leagues match \"$searchQuery\"",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            } else {
+                LeaguesList(
+                    leagues = searchState.data,
+                    onLeagueClick = onLeagueClick,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PagedLeaguesList(
+    lazyLeagues: LazyPagingItems<League>,
+    onLeagueClick: (leagueName: String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+    ) {
+        items(
+            count = lazyLeagues.itemCount,
+            key = lazyLeagues.itemKey { it.id },
+        ) { index ->
+            val league = lazyLeagues[index] ?: return@items
+            LeagueCard(
+                league = league,
+                onClick = { onLeagueClick(league.name) },
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
         }
     }
 }

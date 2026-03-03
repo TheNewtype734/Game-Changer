@@ -1,5 +1,9 @@
 package com.squires.gamechanger.data.repository
 
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.map
 import com.squires.gamechanger.common.Result
 import com.squires.gamechanger.data.local.dao.TeamDao
 import com.squires.gamechanger.data.local.dao.TeamDetailDao
@@ -15,8 +19,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
@@ -29,28 +31,12 @@ class TeamRepositoryImpl @Inject constructor(
     private val teamDetailDao: TeamDetailDao,
 ) : TeamRepository {
 
-    override fun getTeamsForLeague(leagueName: String): Flow<Result<List<Team>>> = channelFlow {
-        send(Result.Loading)
-        when (val result = refreshTeamsForLeague(leagueName)) {
-            is Result.Error -> {
-                val cached = teamDao.getTeamsForLeague(leagueName).first().map { it.toDomain() }
-                send(Result.Error(result.message, result.cause, cachedData = cached.ifEmpty { null }))
-            }
-            is Result.Success -> {
-                try {
-                    teamDao.getTeamsForLeague(leagueName)
-                        .map<_, Result<List<Team>>> { Result.Success(it.map { e -> e.toDomain() }) }
-                        .collect { send(it) }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Throwable) {
-                    val cached = teamDao.getTeamsForLeague(leagueName).first().map { it.toDomain() }
-                    send(Result.Error(e.toUserMessage(), e, cachedData = cached.ifEmpty { null }))
-                }
-            }
-            is Result.Loading -> {} // cannot occur for a suspend fun
-        }
-    }.flowOn(Dispatchers.IO)
+    override fun getTeamsForLeaguePaged(leagueName: String): Flow<PagingData<Team>> = Pager(
+        config = PagingConfig(pageSize = 20, enablePlaceholders = false),
+        pagingSourceFactory = { teamDao.pagingSource(leagueName) },
+    ).flow
+        .map { pagingData -> pagingData.map { it.toDomain() } }
+        .flowOn(Dispatchers.IO)
 
     override fun getTeamDetail(teamId: String): Flow<Result<TeamDetail>> {
         return teamDetailDao.getTeamDetail(teamId)
