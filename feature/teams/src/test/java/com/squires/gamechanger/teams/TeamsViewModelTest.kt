@@ -1,20 +1,24 @@
 package com.squires.gamechanger.teams
 
 import androidx.lifecycle.SavedStateHandle
+import androidx.paging.PagingData
 import app.cash.turbine.test
 import com.squires.gamechanger.common.Result
-import com.squires.gamechanger.common.UiState
 import com.squires.gamechanger.domain.model.Team
-import com.squires.gamechanger.domain.usecase.GetTeamsForLeagueUseCase
+import com.squires.gamechanger.domain.usecase.GetTeamsForLeaguePagedUseCase
+import com.squires.gamechanger.domain.usecase.HasTeamsForLeagueUseCase
+import com.squires.gamechanger.domain.usecase.RefreshTeamsForLeagueUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -27,12 +31,17 @@ import org.mockito.kotlin.whenever
 @OptIn(ExperimentalCoroutinesApi::class)
 class TeamsViewModelTest {
 
-    private val getTeamsForLeagueUseCase: GetTeamsForLeagueUseCase = mock()
+    private val getTeamsForLeaguePagedUseCase: GetTeamsForLeaguePagedUseCase = mock()
+    private val hasTeamsForLeagueUseCase: HasTeamsForLeagueUseCase = mock()
+    private val refreshTeamsForLeagueUseCase: RefreshTeamsForLeagueUseCase = mock()
     private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        whenever(getTeamsForLeaguePagedUseCase(any())).thenReturn(flowOf(PagingData.empty()))
+        // Default: cold cache. Suspend functions must be stubbed inside a coroutine context.
+        runBlocking { whenever(hasTeamsForLeagueUseCase(any())).thenReturn(false) }
     }
 
     @After
@@ -43,7 +52,9 @@ class TeamsViewModelTest {
     private fun createViewModel(leagueName: String = "Premier League"): TeamsViewModel {
         return TeamsViewModel(
             savedStateHandle = SavedStateHandle(mapOf("leagueName" to leagueName)),
-            getTeamsForLeagueUseCase = getTeamsForLeagueUseCase,
+            getTeamsForLeaguePagedUseCase = getTeamsForLeaguePagedUseCase,
+            hasTeamsForLeagueUseCase = hasTeamsForLeagueUseCase,
+            refreshTeamsForLeagueUseCase = refreshTeamsForLeagueUseCase,
         )
     }
 
@@ -52,85 +63,116 @@ class TeamsViewModelTest {
     )
 
     @Test
-    fun `initial state is Loading`() = runTest {
-        whenever(getTeamsForLeagueUseCase(any())).thenReturn(flowOf(Result.Loading))
+    fun `initial refreshState is Success before coroutine runs`() = runTest {
+        whenever(refreshTeamsForLeagueUseCase(any())).thenReturn(Result.Success(Unit))
 
         val viewModel = createViewModel()
 
-        viewModel.uiState.test {
-            assertTrue(awaitItem() is UiState.Loading)
+        assertEquals(Result.Success(Unit), viewModel.refreshState.value)
+    }
+
+    @Test
+    fun `refreshState transitions through Loading when cache is empty`() = runTest {
+        whenever(refreshTeamsForLeagueUseCase(any())).thenReturn(Result.Success(Unit))
+
+        val viewModel = createViewModel()
+
+        viewModel.refreshState.test {
+            assertEquals(Result.Success(Unit), awaitItem())  // initial sync value
+            testScheduler.advanceUntilIdle()
+            assertEquals(Result.Loading, awaitItem())         // cold cache: spinner shows
+            assertEquals(Result.Success(Unit), awaitItem())   // refresh completes
             cancelAndIgnoreRemainingEvents()
         }
     }
 
     @Test
-    fun `success result maps to Success state`() = runTest {
-        whenever(getTeamsForLeagueUseCase(any())).thenReturn(flowOf(Result.Success(teams)))
-
-        val viewModel = createViewModel()
-
-        viewModel.uiState.test {
-            awaitItem() // initial Loading
-            val state = awaitItem()
-            assertTrue(state is UiState.Success)
-            assertEquals(teams, (state as UiState.Success).data)
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `error result maps to Error state`() = runTest {
+    fun `refreshState becomes Error when refresh fails`() = runTest {
         val errorMessage = "No internet connection. Check your network and try again."
-        whenever(getTeamsForLeagueUseCase(any())).thenReturn(
-            flowOf<Result<List<Team>>>(Result.Error(errorMessage))
-        )
+        whenever(refreshTeamsForLeagueUseCase(any())).thenReturn(Result.Error(errorMessage))
 
         val viewModel = createViewModel()
 
-        viewModel.uiState.test {
-            awaitItem() // initial Loading
-            val state = awaitItem()
-            assertTrue(state is UiState.Error)
-            assertEquals(errorMessage, (state as UiState.Error).message)
+        viewModel.refreshState.test {
+            awaitItem()                                // initial Success(Unit)
+            testScheduler.advanceUntilIdle()
+            assertEquals(Result.Loading, awaitItem())  // cold cache: spinner shows
+            val state = awaitItem()                    // network error
+            assertTrue(state is Result.Error)
+            assertEquals(errorMessage, (state as Result.Error).message)
             cancelAndIgnoreRemainingEvents()
         }
     }
 
     @Test
-    fun `error result with cachedData maps to Error state with cachedData`() = runTest {
-        whenever(getTeamsForLeagueUseCase(any())).thenReturn(
-            flowOf<Result<List<Team>>>(Result.Error("No internet...", cachedData = teams))
-        )
+    fun `refreshState stays Success when cache has data (warm cache)`() = runTest {
+        whenever(hasTeamsForLeagueUseCase(any())).thenReturn(true)
+        whenever(refreshTeamsForLeagueUseCase(any())).thenReturn(Result.Success(Unit))
 
         val viewModel = createViewModel()
 
-        viewModel.uiState.test {
-            awaitItem() // initial Loading
-            val state = awaitItem() as UiState.Error
-            assertEquals(teams, state.cachedData)
+        viewModel.refreshState.test {
+            assertEquals(Result.Success(Unit), awaitItem())  // initial sync value
+            testScheduler.advanceUntilIdle()
+            // warm cache: no Loading emitted; Success(Unit) == current value, not re-emitted
+            expectNoEvents()
             cancelAndIgnoreRemainingEvents()
         }
     }
 
     @Test
-    fun `success with empty list maps to Success state with empty list`() = runTest {
-        whenever(getTeamsForLeagueUseCase(any())).thenReturn(flowOf(Result.Success(emptyList())))
+    fun `refreshState emits Error even with warm cache when refresh fails`() = runTest {
+        whenever(hasTeamsForLeagueUseCase(any())).thenReturn(true)
+        whenever(refreshTeamsForLeagueUseCase(any())).thenReturn(Result.Error("Network error"))
 
         val viewModel = createViewModel()
 
-        viewModel.uiState.test {
-            awaitItem() // initial Loading
+        viewModel.refreshState.test {
+            assertEquals(Result.Success(Unit), awaitItem())  // initial sync value
+            testScheduler.advanceUntilIdle()
+            // warm cache: no Loading emitted, but error still surfaced
             val state = awaitItem()
-            assertTrue(state is UiState.Success)
-            assertTrue((state as UiState.Success).data.isEmpty())
+            assertTrue(state is Result.Error)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `retry invokes refreshTeamsForLeagueUseCase a second time`() = runTest {
+        whenever(refreshTeamsForLeagueUseCase(any())).thenReturn(Result.Success(Unit))
+
+        val viewModel = createViewModel()
+        testScheduler.advanceUntilIdle() // initial refresh
+
+        viewModel.retry()
+        testScheduler.advanceUntilIdle() // retry
+
+        verify(refreshTeamsForLeagueUseCase, times(2)).invoke("Premier League")
+    }
+
+    @Test
+    fun `retry after error becomes Loading then result`() = runTest {
+        whenever(refreshTeamsForLeagueUseCase(any()))
+            .thenReturn(Result.Error("Network error"))
+            .thenReturn(Result.Success(Unit))
+
+        val viewModel = createViewModel()
+        testScheduler.advanceUntilIdle() // initial refresh (Error)
+
+        viewModel.refreshState.test {
+            awaitItem() // current value: Error
+            viewModel.retry()
+            testScheduler.advanceUntilIdle()
+            assertEquals(Result.Loading, awaitItem())
+            assertEquals(Result.Success(Unit), awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
     }
 
     @Test
     fun `leagueName is read from SavedStateHandle`() = runTest {
+        whenever(refreshTeamsForLeagueUseCase(any())).thenReturn(Result.Success(Unit))
         val leagueName = "La Liga"
-        whenever(getTeamsForLeagueUseCase(any())).thenReturn(flowOf(Result.Loading))
 
         val viewModel = createViewModel(leagueName = leagueName)
 
@@ -138,63 +180,23 @@ class TeamsViewModelTest {
     }
 
     @Test
-    fun `retry re-collects from use case`() = runTest {
-        val updatedTeams = listOf(
-            Team(id = "133604", name = "Arsenal FC", leagueName = "Premier League", badgeUrl = null, sport = "Soccer"),
-        )
-        whenever(getTeamsForLeagueUseCase(any()))
-            .thenReturn(flowOf(Result.Success(teams)))
-            .thenReturn(flowOf(Result.Success(updatedTeams)))
+    fun `pagedTeams is initialized from getTeamsForLeaguePagedUseCase`() = runTest {
+        whenever(refreshTeamsForLeagueUseCase(any())).thenReturn(Result.Success(Unit))
 
         val viewModel = createViewModel()
 
-        viewModel.uiState.test {
-            awaitItem() // initial Loading
-            awaitItem() // Success from init
-            viewModel.retry()
-            val state = awaitItem() as UiState.Success
-            assertEquals(updatedTeams, state.data)
-            cancelAndIgnoreRemainingEvents()
-        }
+        assertNotNull(viewModel.pagedTeams)
+        verify(getTeamsForLeaguePagedUseCase).invoke("Premier League")
     }
 
     @Test
-    fun `retry invokes use case a second time`() = runTest {
-        val updatedTeams = listOf(
-            Team(id = "133604", name = "Arsenal FC", leagueName = "Premier League", badgeUrl = null, sport = "Soccer"),
-        )
-        whenever(getTeamsForLeagueUseCase(any()))
-            .thenReturn(flowOf(Result.Success(teams)))
-            .thenReturn(flowOf(Result.Success(updatedTeams)))
+    fun `refresh uses leagueName from SavedStateHandle`() = runTest {
+        whenever(refreshTeamsForLeagueUseCase(any())).thenReturn(Result.Success(Unit))
+        val leagueName = "La Liga"
 
-        val viewModel = createViewModel()
+        val viewModel = createViewModel(leagueName = leagueName)
+        testScheduler.advanceUntilIdle()
 
-        viewModel.uiState.test {
-            awaitItem() // initial Loading
-            awaitItem() // Success from init
-            viewModel.retry()
-            awaitItem() // Success from retry
-            cancelAndIgnoreRemainingEvents()
-        }
-
-        verify(getTeamsForLeagueUseCase, times(2)).invoke("Premier League")
-    }
-
-    @Test
-    fun `retry on error re-emits Error with cachedData`() = runTest {
-        whenever(getTeamsForLeagueUseCase(any()))
-            .thenReturn(flowOf<Result<List<Team>>>(Result.Error("No internet...", cachedData = teams)))
-            .thenReturn(flowOf<Result<List<Team>>>(Result.Error("Still no internet.", cachedData = teams)))
-
-        val viewModel = createViewModel()
-
-        viewModel.uiState.test {
-            awaitItem() // initial Loading
-            awaitItem() // Error with cached data
-            viewModel.retry()
-            val errorAfterRetry = awaitItem() as UiState.Error
-            assertEquals(teams, errorAfterRetry.cachedData)
-            cancelAndIgnoreRemainingEvents()
-        }
+        verify(refreshTeamsForLeagueUseCase).invoke(leagueName)
     }
 }

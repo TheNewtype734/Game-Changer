@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -34,7 +33,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.squires.gamechanger.common.UiState
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
+import com.squires.gamechanger.common.Result
 import com.squires.gamechanger.domain.model.Team
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -45,7 +47,8 @@ fun TeamsScreen(
     modifier: Modifier = Modifier,
     viewModel: TeamsViewModel = hiltViewModel(),
 ) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val lazyTeams = viewModel.pagedTeams.collectAsLazyPagingItems()
+    val refreshState by viewModel.refreshState.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -64,7 +67,8 @@ fun TeamsScreen(
         modifier = modifier,
     ) { innerPadding ->
         TeamsContent(
-            uiState = uiState,
+            lazyTeams = lazyTeams,
+            refreshState = refreshState,
             onTeamClick = onTeamClick,
             onRetry = viewModel::retry,
             modifier = Modifier.padding(innerPadding),
@@ -74,7 +78,8 @@ fun TeamsScreen(
 
 @Composable
 private fun TeamsContent(
-    uiState: TeamsUiState,
+    lazyTeams: LazyPagingItems<Team>,
+    refreshState: Result<Unit>,
     onTeamClick: (teamId: String) -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
@@ -83,42 +88,28 @@ private fun TeamsContent(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
-        when (uiState) {
-            is UiState.Loading -> {
-                CircularProgressIndicator()
-            }
-
-            is UiState.Error -> {
-                val cached = uiState.cachedData
-                if (cached != null) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        TeamsGrid(
-                            teams = cached,
-                            onTeamClick = onTeamClick,
-                        )
-                        ErrorBanner(
-                            message = uiState.message,
-                            onRetry = onRetry,
-                            modifier = Modifier.align(Alignment.TopCenter),
-                        )
-                    }
-                } else {
-                    FullScreenError(message = uiState.message, onRetry = onRetry)
-                }
-            }
-
-            is UiState.Success -> {
-                if (uiState.data.isEmpty()) {
-                    Text(
-                        text = "No teams found",
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                } else {
-                    TeamsGrid(
-                        teams = uiState.data,
-                        onTeamClick = onTeamClick,
+        if (lazyTeams.itemCount > 0) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                TeamsGrid(
+                    lazyTeams = lazyTeams,
+                    onTeamClick = onTeamClick,
+                )
+                if (refreshState is Result.Error) {
+                    ErrorBanner(
+                        message = refreshState.message,
+                        onRetry = onRetry,
+                        modifier = Modifier.align(Alignment.TopCenter),
                     )
                 }
+            }
+        } else {
+            when (refreshState) {
+                is Result.Loading -> CircularProgressIndicator()
+                is Result.Error -> FullScreenError(message = refreshState.message, onRetry = onRetry)
+                is Result.Success -> Text(
+                    text = "No teams found",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
             }
         }
     }
@@ -126,7 +117,7 @@ private fun TeamsContent(
 
 @Composable
 private fun TeamsGrid(
-    teams: List<Team>,
+    lazyTeams: LazyPagingItems<Team>,
     onTeamClick: (teamId: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -136,9 +127,10 @@ private fun TeamsGrid(
         contentPadding = PaddingValues(16.dp),
     ) {
         items(
-            items = teams,
-            key = { it.id },
-        ) { team ->
+            count = lazyTeams.itemCount,
+            key = lazyTeams.itemKey { it.id },
+        ) { index ->
+            val team = lazyTeams[index] ?: return@items
             TeamCard(
                 team = team,
                 onClick = { onTeamClick(team.id) },

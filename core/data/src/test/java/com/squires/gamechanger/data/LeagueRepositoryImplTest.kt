@@ -1,6 +1,7 @@
 package com.squires.gamechanger.data
 
-import app.cash.turbine.test
+import androidx.paging.PagingSource
+import androidx.paging.PagingState
 import com.squires.gamechanger.common.Result
 import com.squires.gamechanger.data.local.dao.LeagueDao
 import com.squires.gamechanger.data.local.entity.LeagueEntity
@@ -10,10 +11,9 @@ import com.squires.gamechanger.network.dto.LeagueDto
 import com.squires.gamechanger.network.dto.response.LeagueResponse
 import com.squires.gamechanger.network.dto.response.LeagueSearchResponse
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mockito.kotlin.mock
@@ -39,91 +39,21 @@ class LeagueRepositoryImplTest {
         )
     )
 
-    @Test
-    fun `getLeagues emits Loading then Success from dao`() = runTest {
-        whenever(dao.getLeagues()).thenReturn(flowOf(leagueEntities))
-        whenever(api.getAllLeagues()).thenReturn(
-            LeagueResponse(
-                leagues = listOf(
-                    LeagueDto(
-                        id = "4328",
-                        name = "English Premier League",
-                        sport = "Soccer",
-                        badgeUrl = null,
-                        country = "England",
-                    )
-                )
-            )
-        )
-
-        repository.getLeagues().test {
-            assertTrue(awaitItem() is Result.Loading)
-            val success = awaitItem()
-            assertTrue(success is Result.Success)
-            assertEquals(1, (success as Result.Success).data.size)
-            assertEquals("English Premier League", success.data.first().name)
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
+    // ─── getLeaguesPaged ────────────────────────────────────────────────────────
 
     @Test
-    fun `getLeagues inserts fetched leagues into dao`() = runTest {
-        val dto = LeagueDto(id = "4328", name = "English Premier League", sport = "Soccer", badgeUrl = null, country = "England")
-        whenever(dao.getLeagues()).thenReturn(flowOf(leagueEntities))
-        whenever(api.getAllLeagues()).thenReturn(LeagueResponse(leagues = listOf(dto)))
-
-        repository.getLeagues().test {
-            assertTrue(awaitItem() is Result.Loading)
-            awaitItem() // Success — onStart has finished, refreshLeagues() and insertAll() have run
-            cancelAndIgnoreRemainingEvents()
+    fun `getLeaguesPaged returns a non-null flow`() = runTest {
+        val fakePagingSource = object : PagingSource<Int, LeagueEntity>() {
+            override fun getRefreshKey(state: PagingState<Int, LeagueEntity>): Int? = null
+            override suspend fun load(params: LoadParams<Int>): LoadResult<Int, LeagueEntity> =
+                LoadResult.Page(data = leagueEntities, prevKey = null, nextKey = null)
         }
+        whenever(dao.pagingSource()).thenReturn(fakePagingSource)
 
-        verify(dao).insertAll(
-            listOf(LeagueEntity(id = "4328", name = "English Premier League", sport = "Soccer", badgeUrl = null, country = "England"))
-        )
+        assertNotNull(repository.getLeaguesPaged())
     }
 
-    @Test
-    fun `getLeagues emits empty Success when dao returns empty list`() = runTest {
-        whenever(dao.getLeagues()).thenReturn(flowOf(emptyList()))
-        whenever(api.getAllLeagues()).thenReturn(LeagueResponse(leagues = null))
-
-        repository.getLeagues().test {
-            assertTrue(awaitItem() is Result.Loading)
-            val success = awaitItem()
-            assertTrue(success is Result.Success)
-            assertTrue((success as Result.Success).data.isEmpty())
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `getLeagues emits Error with cachedData when refresh fails and cache exists`() = runTest {
-        whenever(dao.getLeagues()).thenReturn(flowOf(leagueEntities))
-        whenever(api.getAllLeagues()).thenAnswer { throw UnknownHostException() }
-
-        repository.getLeagues().test {
-            assertTrue(awaitItem() is Result.Loading)
-            val error = awaitItem() as Result.Error
-            assertEquals("No internet connection. Check your network and try again.", error.message)
-            assertEquals(1, error.cachedData?.size)
-            assertEquals("English Premier League", error.cachedData?.first()?.name)
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `getLeagues emits Error with null cachedData when refresh fails and cache is empty`() = runTest {
-        whenever(dao.getLeagues()).thenReturn(flowOf(emptyList()))
-        whenever(api.getAllLeagues()).thenAnswer { throw UnknownHostException() }
-
-        repository.getLeagues().test {
-            assertTrue(awaitItem() is Result.Loading)
-            val error = awaitItem() as Result.Error
-            assertNull(error.cachedData)
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
+    // ─── searchLeagues ──────────────────────────────────────────────────────────
 
     @Test
     fun `searchLeagues returns Success with results for matching country query`() = runTest {
@@ -147,6 +77,8 @@ class LeagueRepositoryImplTest {
         assertEquals("No internet connection. Check your network and try again.", (result as Result.Error).message)
     }
 
+    // ─── refreshLeagues ─────────────────────────────────────────────────────────
+
     @Test
     fun `refreshLeagues fetches from api and inserts into dao`() = runTest {
         val dto = LeagueDto(id = "4328", name = "English Premier League", sport = "Soccer", badgeUrl = null, country = "England")
@@ -157,5 +89,40 @@ class LeagueRepositoryImplTest {
         verify(dao).insertAll(
             listOf(LeagueEntity(id = "4328", name = "English Premier League", sport = "Soccer", badgeUrl = null, country = "England"))
         )
+    }
+
+    @Test
+    fun `refreshLeagues returns Success on successful fetch`() = runTest {
+        whenever(api.getAllLeagues()).thenReturn(LeagueResponse(leagues = emptyList()))
+
+        val result = repository.refreshLeagues()
+
+        assertTrue(result is Result.Success)
+    }
+
+    @Test
+    fun `refreshLeagues returns Error on network failure`() = runTest {
+        whenever(api.getAllLeagues()).thenAnswer { throw UnknownHostException() }
+
+        val result = repository.refreshLeagues()
+
+        assertTrue(result is Result.Error)
+        assertEquals("No internet connection. Check your network and try again.", (result as Result.Error).message)
+    }
+
+    // ─── hasLeagues ─────────────────────────────────────────────────────────────
+
+    @Test
+    fun `hasLeagues returns true when league count is greater than zero`() = runTest {
+        whenever(dao.count()).thenReturn(5)
+
+        assertTrue(repository.hasLeagues())
+    }
+
+    @Test
+    fun `hasLeagues returns false when league count is zero`() = runTest {
+        whenever(dao.count()).thenReturn(0)
+
+        assertTrue(!repository.hasLeagues())
     }
 }
