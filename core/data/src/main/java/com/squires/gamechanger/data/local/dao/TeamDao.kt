@@ -13,6 +13,9 @@ interface TeamDao {
     @Query("SELECT * FROM teams WHERE leagueName = :leagueName ORDER BY name ASC")
     fun pagingSource(leagueName: String): PagingSource<Int, TeamEntity>
 
+    @Query("SELECT COUNT(*) FROM teams WHERE leagueName = :leagueName")
+    suspend fun countForLeague(leagueName: String): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(teams: List<TeamEntity>)
 }

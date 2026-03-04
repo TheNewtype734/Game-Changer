@@ -8,6 +8,7 @@ import com.squires.gamechanger.common.Result
 import com.squires.gamechanger.common.UiState
 import com.squires.gamechanger.domain.model.League
 import com.squires.gamechanger.domain.usecase.GetLeaguesPagedUseCase
+import com.squires.gamechanger.domain.usecase.HasLeaguesUseCase
 import com.squires.gamechanger.domain.usecase.RefreshLeaguesUseCase
 import com.squires.gamechanger.domain.usecase.SearchLeaguesUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -30,6 +31,7 @@ import javax.inject.Inject
 @HiltViewModel
 class LeaguesViewModel @Inject constructor(
     private val getLeaguesPagedUseCase: GetLeaguesPagedUseCase,
+    private val hasLeaguesUseCase: HasLeaguesUseCase,
     private val refreshLeaguesUseCase: RefreshLeaguesUseCase,
     private val searchLeaguesUseCase: SearchLeaguesUseCase,
 ) : ViewModel() {
@@ -37,7 +39,7 @@ class LeaguesViewModel @Inject constructor(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    private val _refreshState = MutableStateFlow<Result<Unit>>(Result.Loading)
+    private val _refreshState = MutableStateFlow<Result<Unit>>(Result.Success(Unit))
     val refreshState: StateFlow<Result<Unit>> = _refreshState.asStateFlow()
 
     private val _searchState = MutableStateFlow<LeaguesUiState>(UiState.Loading)
@@ -85,7 +87,9 @@ class LeaguesViewModel @Inject constructor(
 
     private fun triggerRefresh() {
         viewModelScope.launch {
-            _refreshState.value = Result.Loading
+            if (!hasLeaguesUseCase()) {
+                _refreshState.value = Result.Loading
+            }
             _refreshState.value = refreshLeaguesUseCase()
         }
     }

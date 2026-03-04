@@ -8,6 +8,7 @@ import androidx.paging.cachedIn
 import com.squires.gamechanger.common.Result
 import com.squires.gamechanger.domain.model.Team
 import com.squires.gamechanger.domain.usecase.GetTeamsForLeaguePagedUseCase
+import com.squires.gamechanger.domain.usecase.HasTeamsForLeagueUseCase
 import com.squires.gamechanger.domain.usecase.RefreshTeamsForLeagueUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
@@ -21,12 +22,13 @@ import javax.inject.Inject
 class TeamsViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val getTeamsForLeaguePagedUseCase: GetTeamsForLeaguePagedUseCase,
+    private val hasTeamsForLeagueUseCase: HasTeamsForLeagueUseCase,
     private val refreshTeamsForLeagueUseCase: RefreshTeamsForLeagueUseCase,
 ) : ViewModel() {
 
     val leagueName: String = checkNotNull(savedStateHandle[TeamsRoute::leagueName.name])
 
-    private val _refreshState = MutableStateFlow<Result<Unit>>(Result.Loading)
+    private val _refreshState = MutableStateFlow<Result<Unit>>(Result.Success(Unit))
     val refreshState: StateFlow<Result<Unit>> = _refreshState.asStateFlow()
 
     val pagedTeams: Flow<PagingData<Team>> = getTeamsForLeaguePagedUseCase(leagueName)
@@ -38,7 +40,9 @@ class TeamsViewModel @Inject constructor(
 
     private fun triggerRefresh() {
         viewModelScope.launch {
-            _refreshState.value = Result.Loading
+            if (!hasTeamsForLeagueUseCase(leagueName)) {
+                _refreshState.value = Result.Loading
+            }
             _refreshState.value = refreshTeamsForLeagueUseCase(leagueName)
         }
     }

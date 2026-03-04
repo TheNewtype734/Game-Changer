@@ -109,4 +109,20 @@ class LeagueRepositoryImplTest {
         assertTrue(result is Result.Error)
         assertEquals("No internet connection. Check your network and try again.", (result as Result.Error).message)
     }
+
+    // ─── hasLeagues ─────────────────────────────────────────────────────────────
+
+    @Test
+    fun `hasLeagues returns true when league count is greater than zero`() = runTest {
+        whenever(dao.count()).thenReturn(5)
+
+        assertTrue(repository.hasLeagues())
+    }
+
+    @Test
+    fun `hasLeagues returns false when league count is zero`() = runTest {
+        whenever(dao.count()).thenReturn(0)
+
+        assertTrue(!repository.hasLeagues())
+    }
 }

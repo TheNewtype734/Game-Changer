@@ -6,10 +6,12 @@ import app.cash.turbine.test
 import com.squires.gamechanger.common.Result
 import com.squires.gamechanger.domain.model.Team
 import com.squires.gamechanger.domain.usecase.GetTeamsForLeaguePagedUseCase
+import com.squires.gamechanger.domain.usecase.HasTeamsForLeagueUseCase
 import com.squires.gamechanger.domain.usecase.RefreshTeamsForLeagueUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -30,6 +32,7 @@ import org.mockito.kotlin.whenever
 class TeamsViewModelTest {
 
     private val getTeamsForLeaguePagedUseCase: GetTeamsForLeaguePagedUseCase = mock()
+    private val hasTeamsForLeagueUseCase: HasTeamsForLeagueUseCase = mock()
     private val refreshTeamsForLeagueUseCase: RefreshTeamsForLeagueUseCase = mock()
     private val testDispatcher = StandardTestDispatcher()
 
@@ -37,6 +40,8 @@ class TeamsViewModelTest {
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         whenever(getTeamsForLeaguePagedUseCase(any())).thenReturn(flowOf(PagingData.empty()))
+        // Default: cold cache. Suspend functions must be stubbed inside a coroutine context.
+        runBlocking { whenever(hasTeamsForLeagueUseCase(any())).thenReturn(false) }
     }
 
     @After
@@ -48,6 +53,7 @@ class TeamsViewModelTest {
         return TeamsViewModel(
             savedStateHandle = SavedStateHandle(mapOf("leagueName" to leagueName)),
             getTeamsForLeaguePagedUseCase = getTeamsForLeaguePagedUseCase,
+            hasTeamsForLeagueUseCase = hasTeamsForLeagueUseCase,
             refreshTeamsForLeagueUseCase = refreshTeamsForLeagueUseCase,
         )
     }
@@ -57,24 +63,25 @@ class TeamsViewModelTest {
     )
 
     @Test
-    fun `initial refreshState is Loading`() = runTest {
+    fun `initial refreshState is Success before coroutine runs`() = runTest {
         whenever(refreshTeamsForLeagueUseCase(any())).thenReturn(Result.Success(Unit))
 
         val viewModel = createViewModel()
 
-        assertEquals(Result.Loading, viewModel.refreshState.value)
+        assertEquals(Result.Success(Unit), viewModel.refreshState.value)
     }
 
     @Test
-    fun `refreshState becomes Success after successful refresh`() = runTest {
+    fun `refreshState transitions through Loading when cache is empty`() = runTest {
         whenever(refreshTeamsForLeagueUseCase(any())).thenReturn(Result.Success(Unit))
 
         val viewModel = createViewModel()
 
         viewModel.refreshState.test {
-            assertEquals(Result.Loading, awaitItem())
+            assertEquals(Result.Success(Unit), awaitItem())  // initial sync value
             testScheduler.advanceUntilIdle()
-            assertEquals(Result.Success(Unit), awaitItem())
+            assertEquals(Result.Loading, awaitItem())         // cold cache: spinner shows
+            assertEquals(Result.Success(Unit), awaitItem())   // refresh completes
             cancelAndIgnoreRemainingEvents()
         }
     }
@@ -87,11 +94,45 @@ class TeamsViewModelTest {
         val viewModel = createViewModel()
 
         viewModel.refreshState.test {
-            awaitItem() // initial Loading
+            awaitItem()                                // initial Success(Unit)
             testScheduler.advanceUntilIdle()
-            val state = awaitItem()
+            assertEquals(Result.Loading, awaitItem())  // cold cache: spinner shows
+            val state = awaitItem()                    // network error
             assertTrue(state is Result.Error)
             assertEquals(errorMessage, (state as Result.Error).message)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `refreshState stays Success when cache has data (warm cache)`() = runTest {
+        whenever(hasTeamsForLeagueUseCase(any())).thenReturn(true)
+        whenever(refreshTeamsForLeagueUseCase(any())).thenReturn(Result.Success(Unit))
+
+        val viewModel = createViewModel()
+
+        viewModel.refreshState.test {
+            assertEquals(Result.Success(Unit), awaitItem())  // initial sync value
+            testScheduler.advanceUntilIdle()
+            // warm cache: no Loading emitted; Success(Unit) == current value, not re-emitted
+            expectNoEvents()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `refreshState emits Error even with warm cache when refresh fails`() = runTest {
+        whenever(hasTeamsForLeagueUseCase(any())).thenReturn(true)
+        whenever(refreshTeamsForLeagueUseCase(any())).thenReturn(Result.Error("Network error"))
+
+        val viewModel = createViewModel()
+
+        viewModel.refreshState.test {
+            assertEquals(Result.Success(Unit), awaitItem())  // initial sync value
+            testScheduler.advanceUntilIdle()
+            // warm cache: no Loading emitted, but error still surfaced
+            val state = awaitItem()
+            assertTrue(state is Result.Error)
             cancelAndIgnoreRemainingEvents()
         }
     }

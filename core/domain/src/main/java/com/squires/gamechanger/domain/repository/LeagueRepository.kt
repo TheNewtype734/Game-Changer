@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.Flow
 
 interface LeagueRepository {
     fun getLeaguesPaged(): Flow<PagingData<League>>
+    suspend fun hasLeagues(): Boolean
     suspend fun searchLeagues(query: String): Result<List<League>>
     suspend fun refreshLeagues(): Result<Unit>
 }

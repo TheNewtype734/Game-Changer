@@ -47,6 +47,9 @@ class LeagueRepositoryImpl @Inject constructor(
             }
         }
 
+    override suspend fun hasLeagues(): Boolean =
+        withContext(Dispatchers.IO) { dao.count() > 0 }
+
     override suspend fun refreshLeagues(): Result<Unit> {
         return try {
             val response = api.getAllLeagues()

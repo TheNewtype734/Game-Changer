@@ -21,8 +21,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapNotNull
-import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 class TeamRepositoryImpl @Inject constructor(
@@ -38,14 +37,17 @@ class TeamRepositoryImpl @Inject constructor(
         .map { pagingData -> pagingData.map { it.toDomain() } }
         .flowOn(Dispatchers.IO)
 
+    override suspend fun hasTeamsForLeague(leagueName: String): Boolean =
+        withContext(Dispatchers.IO) { teamDao.countForLeague(leagueName) > 0 }
+
     override fun getTeamDetail(teamId: String): Flow<Result<TeamDetail>> {
+        // Room emits the current row value on first collection.
+        // null → Result.Loading (entity not yet cached; spinner shows until refresh writes to Room)
+        // non-null → Result.Success (cached entity; no Loading flash)
         return teamDetailDao.getTeamDetail(teamId)
-            .map<_, Result<TeamDetail>?> { entity ->
-                entity?.let { Result.Success(it.toDomain()) }
-            }
-            .mapNotNull { it }
-            .onStart {
-                emit(Result.Loading)
+            .map { entity ->
+                if (entity != null) Result.Success(entity.toDomain())
+                else Result.Loading
             }
             .catch { throwable ->
                 emit(Result.Error(throwable.toUserMessage(), throwable))

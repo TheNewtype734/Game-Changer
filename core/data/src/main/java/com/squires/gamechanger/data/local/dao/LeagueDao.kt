@@ -13,6 +13,9 @@ interface LeagueDao {
     @Query("SELECT * FROM leagues ORDER BY name ASC")
     fun pagingSource(): PagingSource<Int, LeagueEntity>
 
+    @Query("SELECT COUNT(*) FROM leagues")
+    suspend fun count(): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(leagues: List<LeagueEntity>)
 }
